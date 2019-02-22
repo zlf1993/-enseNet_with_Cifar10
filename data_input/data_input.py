@@ -2,7 +2,7 @@
 __all__=['getDataGenerator']
 
 import keras
-from keras.preprocessing.image import ImageDataGenerator,array_to_img
+from keras.preprocessing.image import ImageDataGenerator, array_to_img
 from keras.datasets import cifar10
 import numpy as np
 import os
@@ -12,7 +12,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
-def getDataGenerator(train_phase,rescale=1./255):
+def getDataGenerator(train_phase, rescale=1./255):
     """return the data generator that consistently
     generates image batches after data augmentation
     Args:
@@ -39,11 +39,32 @@ def getDataGenerator(train_phase,rescale=1./255):
     else: 
         #validation
         #only rescaling is applied on validation set
-        datagen = ImageDataGenerator(
-        rescale=rescale
-        )
+        datagen = ImageDataGenerator(rescale=rescale)
     
     return datagen
+
+
+def generate_batch_data_random(x, y, batch_size):
+    """gradually extract sample to GUP"""
+    ylen = len(y)
+    loopcount = ylen // batch_size
+    while (True):
+        i = np.random.randint(0, loopcount)
+        yield x[i * batch_size:(i + 1) * batch_size]*1./255, y[i * batch_size:(i + 1) * batch_size]
+
+
+def loadcifar10(nb_classes):
+    """preprocessing for cifar10
+    """
+
+    (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    x_train /= 255
+    x_test /= 255
+    y_train = keras.utils.to_categorical(y_train, nb_classes)
+    y_test = keras.utils.to_categorical(y_test, nb_classes)
+    return x_train, y_train, x_test, y_test
 
 
 def testDataGenerator(pics_num):

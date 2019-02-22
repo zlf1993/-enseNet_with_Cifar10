@@ -1,106 +1,131 @@
 # -*- coding:utf-8 -*-
-import keras
 import numpy as np
 import os
-import matplotlib  
-matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
-from keras.optimizers import SGD
-from keras.optimizers import Adam
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
-from keras import backend as K
-from keras.datasets import cifar10
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, TensorBoard, Callback
 from keras.models import load_model
-from data_input.data_input import getDataGenerator
-from model.DenseNet import createDenseNet
+from data_input.data_input import getDataGenerator, loadcifar10, generate_batch_data_random
+from keras.applications.densenet import DenseNet121
+from keras.layers import Dense
+from keras.models import Model
+from keras import backend as K
+from keras.optimizers import Adam
 
-#define DenseNet parms
+# define DenseNet parms
 ROWS = 32
 COLS = 32
 CHANNELS = 3
 nb_classes = 10
-batch_size = 32
-nb_epoch = 40
-img_dim = (ROWS,COLS,CHANNELS)
+batch_size = 500
+samples_per_epoch = 50000 // 500
+nb_epoch = 100
+img_dim = (ROWS, COLS, CHANNELS)
 densenet_depth = 40
 densenet_growth_rate = 12
 
-#define filepath parms
-check_point_file = r"./densenet_check_point.h5"
-loss_trend_graph_path = r"./loss.jpg"
-acc_trend_graph_path = r"./acc.jpg"
+# define filepath parms
+save_dir = os.path.join(os.getcwd(), 'saved_models')
+model_name = 'keras_cifar10_trained_model.h5'
+
 
 def main(resume=False):
     print('Now,we start compiling DenseNet model...')
-    model = createDenseNet(nb_classes=nb_classes,img_dim=img_dim,depth=densenet_depth,
-                  growth_rate = densenet_growth_rate)
-    if resume == True: 
-        model.load_weights(check_point_file)
-    
+
+    if resume == False:
+        basemodel = DenseNet121(include_top=False, weights=None, input_shape=(32, 32, 3), pooling='avg')
+    else:
+        basemodel = DenseNet121(include_top=False, weights='imagenet', input_shape=(32, 32, 3), pooling='avg')
+
+    # x = basemodel.layers[-1].output
+    x = basemodel.output
+    x = Dense(100, activation='sigmoid', name='fc100')(x)
+    prediction = Dense(nb_classes, activation='softmax', name='fc10')(x)
+    model = Model(input=basemodel.input, output=prediction)
+
+    if resume == False:
+        for layer in basemodel.layers:
+            layer.trainable = True
+    else:
+        for layer in basemodel.layers:
+            layer.trainable = False
+        basemodel.layers[-1] = True
+        basemodel.layers[-2] = True
+        basemodel.layers[-3] = True
+        basemodel.layers[-4] = True
+        basemodel.layers[-5] = True
+        basemodel.layers[-6] = True
+
     optimizer = Adam()
-    #optimizer = SGD(lr=0.001)
-    
-    model.compile(loss='categorical_crossentropy',optimizer=optimizer,metrics=['accuracy'])
-    
-    print('Now,we start loading data...')
-    (x_train,y_train),(x_test,y_test) = cifar10.load_data()
-    x_train = x_train.astype('float32')
-    x_test = x_test.astype('float32')
-    x_train /= 255
-    x_test /= 255
-    y_train = keras.utils.to_categorical(y_train, nb_classes)
-    y_test= keras.utils.to_categorical(y_test, nb_classes)
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+
+    # start loading data
+    # start loading data
+    x_train, y_train, x_test, y_test = loadcifar10(nb_classes)
     train_datagen = getDataGenerator(train_phase=True)
-    train_datagen = train_datagen.flow(x_train,y_train,batch_size = batch_size)
-    validation_datagen = getDataGenerator(train_phase=False)
-    validation_datagen = validation_datagen.flow(x_test,y_test,batch_size = batch_size)
- 
-    print('Now,we start defining callback functions...')
-    """
-    lr_reducer = ReduceLROnPlateau(monitor='val_acc', factor=np.sqrt(0.1),
-                                    cooldown=0, patience=3, min_lr=1e-6)
-    """
-    model_checkpoint = ModelCheckpoint(check_point_file, monitor="val_acc", save_best_only=True,
-                                  save_weights_only=True, verbose=1)
-                                 
-    #callbacks=[lr_reducer,model_checkpoint]
-    callbacks=[model_checkpoint]
-    
-    print("Now,we start training...")
-    history = model.fit_generator(generator=train_datagen,
-                    steps_per_epoch= x_train.shape[0] // batch_size,
-                    epochs=nb_epoch,
-                    callbacks=callbacks,
-                    validation_data=validation_datagen,
-                    validation_steps = x_test.shape[0] // batch_size,
-                    verbose=1)
-    
-    print("Now,we start drawing the loss and acc trends graph...")
-    #summarize history for accuracy 
-    fig = plt.figure(1)
-    plt.plot(history.history["acc"])  
-    plt.plot(history.history["val_acc"])  
-    plt.title("Model accuracy")  
-    plt.ylabel("accuracy")  
-    plt.xlabel("epoch")  
-    plt.legend(["train","test"],loc="upper left")  
-    plt.savefig(acc_trend_graph_path) 
-    plt.close(1)
-    
-    #summarize history for loss
-    fig = plt.figure(2)     
-    plt.plot(history.history["loss"])  
-    plt.plot(history.history["val_loss"])  
-    plt.title("Model loss")  
-    plt.ylabel("loss")  
-    plt.xlabel("epoch")  
-    plt.legend(["train","test"],loc="upper left")  
-    plt.savefig(loss_trend_graph_path)
-    plt.close(2)
-   
-    print("We are done, everything seems OK...")
-    
+    train_datagen = train_datagen.flow(x_train, y_train, batch_size=batch_size)
+    # validation_datagen = getDataGenerator(train_phase=False)
+    # validation_datagen = validation_datagen.flow(x_test, y_test, batch_size=100)
+
+    # defining callback functions
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
+    filepath = "model_{epoch:02d}-{val_acc:.2f}.hdf5"
+    lr_reducer = ReduceLROnPlateau(monitor='val_acc', factor=0.1, cooldown=0, patience=7, min_lr=1e-6)
+    model_checkpoint = ModelCheckpoint(os.path.join(save_dir, filepath), monitor="val_acc", save_best_only=True,
+                                       save_weights_only=True, verbose=1, mode='auto', period=1)
+    # tensorboard = TensorBoard(log_dir='./logs', histogram_freq=0)
+    history = LossHistory()
+    # callbacks = [lr_reducer, model_checkpoint, tensorboard, history]
+    callbacks = [model_checkpoint, history, lr_reducer]
+
+    # training
+    model.fit_generator(generator=train_datagen, steps_per_epoch=samples_per_epoch, epochs=nb_epoch, verbose=1,
+                                    callbacks=callbacks,
+                                    validation_data=generate_batch_data_random(x_test, y_test, batch_size),
+                                    nb_val_samples=x_test.shape[0] // batch_size)
+
+    history.loss_plot('epoch')
+    model_path = os.path.join(save_dir, model_name)
+    model.save(model_path)
+
+class LossHistory(Callback):
+    def on_train_begin(self, logs={}):
+        self.losses = {'batch':[], 'epoch':[]}
+        self.accuracy = {'batch':[], 'epoch':[]}
+        self.val_loss = {'batch':[], 'epoch':[]}
+        self.val_acc = {'batch':[], 'epoch':[]}
+
+    def on_batch_end(self, batch, logs={}):
+        self.losses['batch'].append(logs.get('loss'))
+        self.accuracy['batch'].append(logs.get('acc'))
+        self.val_loss['batch'].append(logs.get('val_loss'))
+        self.val_acc['batch'].append(logs.get('val_acc'))
+
+    def on_epoch_end(self, batch, logs={}):
+        self.losses['epoch'].append(logs.get('loss'))
+        self.accuracy['epoch'].append(logs.get('acc'))
+        self.val_loss['epoch'].append(logs.get('val_loss'))
+        self.val_acc['epoch'].append(logs.get('val_acc'))
+
+    def loss_plot(self, loss_type):
+        iters = range(len(self.losses[loss_type]))
+        plt.figure()
+        # acc
+        plt.plot(iters, self.accuracy[loss_type], 'r', label='train acc')
+        # loss
+        plt.plot(iters, self.losses[loss_type], 'g', label='train loss')
+        if loss_type == 'epoch':
+            # val_acc
+            plt.plot(iters, self.val_acc[loss_type], 'b', label='val acc')
+            # val_loss
+            plt.plot(iters, self.val_loss[loss_type], 'k', label='val loss')
+            plt.grid(True)
+            plt.xlabel(loss_type)
+            plt.ylabel('acc-loss')
+            plt.legend(loc="upper right")
+            plt.savefig("./result.jpg")
+
 if __name__ == '__main__':
     K.set_image_data_format('channels_last')
-    #set_max_gpu_memory()
+
     main(resume=True)
