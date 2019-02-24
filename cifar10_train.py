@@ -46,14 +46,17 @@ def main(resume=False):
         for layer in basemodel.layers:
             layer.trainable = True
     else:
+        print("Setting Trainable Permission")
         for layer in basemodel.layers:
-            layer.trainable = False
-        basemodel.layers[-1] = True
-        basemodel.layers[-2] = True
-        basemodel.layers[-3] = True
-        basemodel.layers[-4] = True
-        basemodel.layers[-5] = True
-        basemodel.layers[-6] = True
+            layer.trainable = True
+        basemodel.layers[1].trainable = False
+        basemodel.layers[2].trainable = False
+        basemodel.layers[3].trainable = False
+        basemodel.layers[4].trainable = False
+        basemodel.layers[5].trainable = False
+        basemodel.layers[6].trainable = False
+        """ for i in range(16):
+            basemodel.layers[(i+1)].trainable = False"""
 
     optimizer = Adam()
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
@@ -63,8 +66,8 @@ def main(resume=False):
     x_train, y_train, x_test, y_test = loadcifar10(nb_classes)
     train_datagen = getDataGenerator(train_phase=True)
     train_datagen = train_datagen.flow(x_train, y_train, batch_size=batch_size)
-    # validation_datagen = getDataGenerator(train_phase=False)
-    # validation_datagen = validation_datagen.flow(x_test, y_test, batch_size=100)
+    validation_datagen = getDataGenerator(train_phase=False)
+    validation_datagen = validation_datagen.flow(x_test, y_test, batch_size=batch_size)
 
     # defining callback functions
     if not os.path.isdir(save_dir):
@@ -79,10 +82,13 @@ def main(resume=False):
     callbacks = [model_checkpoint, history, lr_reducer]
 
     # training
-    model.fit_generator(generator=train_datagen, steps_per_epoch=samples_per_epoch, epochs=nb_epoch, verbose=1,
+    """model.fit_generator(generator=train_datagen, steps_per_epoch=samples_per_epoch, epochs=nb_epoch, verbose=1,
                                     callbacks=callbacks,
                                     validation_data=generate_batch_data_random(x_test, y_test, batch_size),
-                                    nb_val_samples=x_test.shape[0] // batch_size)
+                                    nb_val_samples=x_test.shape[0] // batch_size)"""
+    model.fit_generator(generator=train_datagen, steps_per_epoch=samples_per_epoch, epochs=nb_epoch, verbose=1,
+                        callbacks=callbacks,
+                        validation_data=(x_test, y_test))
 
     history.loss_plot('epoch')
     model_path = os.path.join(save_dir, model_name)
@@ -128,4 +134,4 @@ class LossHistory(Callback):
 if __name__ == '__main__':
     K.set_image_data_format('channels_last')
 
-    main(resume=True)
+    main(resume=False)
